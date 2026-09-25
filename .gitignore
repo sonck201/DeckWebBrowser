@@ -50,3 +50,10 @@ backend/out
 decky_plugin.py
 /decky-loader-main
 /.vscode/tasks.json
+
+# AI tooling artifacts
+.claude-flow/
+.swarm/
+.hive-mind/
+ruvector.db
+.claude/settings.local.json
