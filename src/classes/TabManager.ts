@@ -189,6 +189,7 @@ export class TabManager {
             const event: MicAccessChangeEvent = new CustomEvent('micAccesChange', { detail: { id, state } });
             this.eventTarget.dispatchEvent(event);
         }
+        wsm.onOpenTab = (url: string) => this.createTab(url)
     }
 }
 

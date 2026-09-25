@@ -60,6 +60,7 @@ export const QAMContent: VFC = ({ }) => {
                         </PanelSectionRow>
                     </PanelSection>
                     <PanelSection title="Default Tabs">
+                        {/* @ts-expect-error decky-frontend-lib types omit style on PanelSectionRow */}
                         <PanelSectionRow style={{ marginLeft: '-16px', marginRight: '-16px' }}>
                             <ReorderableList<{ tab: string }>
                                 entries={defaultTabItems}
@@ -137,6 +138,22 @@ export const QAMContent: VFC = ({ }) => {
                             />
                         </PanelSectionRow>
                     </PanelSection>
+                    <PanelSection title='Ad Blocking'>
+                        <PanelSectionRow>
+                            <ToggleField
+                                label={<div style={{ display: 'flex', alignItems: 'baseline' }}>
+                                    <div>
+                                        Block Ads
+                                    </div>
+                                    <div style={{ fontSize: '.7em', lineHeight: '.7em', marginLeft: '1ch' }}>
+                                        applies to new tabs
+                                    </div>
+                                </div>}
+                                checked={!!settingsManager.settings.adBlock}
+                                onChange={checked => settingsManager.setSetting('adBlock', checked)}
+                            />
+                        </PanelSectionRow>
+                    </PanelSection>
                     <PanelSection title='Menu Position' >
                         <PanelSectionRow>
                             <Field label={
@@ -167,6 +184,11 @@ export const QAMContent: VFC = ({ }) => {
                 </>
             }
             <PanelSection title='other'>
+                <PanelSectionRow>
+                    <ButtonItem layout='below' onClick={() => openUrl('home', true)}>
+                        New Tab
+                    </ButtonItem>
+                </PanelSectionRow>
                 <PanelSectionRow>
                     <ButtonItem layout='below' onClick={() => openUrl('localhost:8080', true)}>
                         Open Inspector

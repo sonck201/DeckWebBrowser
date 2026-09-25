@@ -8,7 +8,8 @@ export enum MessageType {
     CONNECTION_CLOSED = 'connectionClosed',
     OFFER = 'offer',
     ANSWER = 'answer',
-    CANDIDATE = 'candidate'
+    CANDIDATE = 'candidate',
+    OPEN_TAB = 'openTab'
 };
 
 type MessageData<T extends MessageType> =
@@ -18,6 +19,7 @@ type MessageData<T extends MessageType> =
     T extends MessageType.OFFER ? RTCSessionDescriptionInit :
     T extends MessageType.ANSWER ? RTCSessionDescriptionInit :
     T extends MessageType.CANDIDATE ? RTCIceCandidate :
+    T extends MessageType.OPEN_TAB ? { url: string } :
     never
 interface MessageSend<T extends MessageType> {
     messageType: T,
@@ -64,7 +66,8 @@ export class WSManager {
     msgId = 0;
     readyToSend = false;
     clients = new Map<string, RTCHandler>();
-    onMicAccessChange = (id: string, state: MicAccess) => undefined;
+    onMicAccessChange: (id: string, state: MicAccess) => void = () => undefined;
+    onOpenTab: (url: string) => void = () => undefined;
     constructor(port: number, mainId: string, key: string) {
         this.id = mainId;
         this.ws = new WebSocket(`ws://127.0.0.1:${port}/ws?api_key=${key}`);
@@ -102,6 +105,11 @@ export class WSManager {
                 case MessageType.CANDIDATE:
                     this.getConnection(msg.fromTargetId)?.handleCandidate((msg as MessageRecieve<MessageType.CANDIDATE>).data);
                     break;
+                case MessageType.OPEN_TAB: {
+                    const { url } = (msg as MessageRecieve<MessageType.OPEN_TAB>).data;
+                    if (/^https?:\/\//i.test(url)) this.onOpenTab(url);
+                    break;
+                }
             }
         };
         this.ws.onopen = () => {

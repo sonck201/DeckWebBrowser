@@ -34,6 +34,10 @@ build-front: ## Build frontend
 	@echo "+ $@"
 	@yarn build
 
+adblock-list: ## Download and merge ad-block host lists into defaults/adblock-hosts.txt
+	@echo "+ $@"
+	@python3 scripts/build_adblock_list.py
+
 build: ## Build everything
 	@$(MAKE) build-front
 
@@ -41,7 +45,7 @@ copy-ssh-key: ## Copy public ssh key to steamdeck
 	@echo "+ $@"
 	@ssh-copy-id -i $(DECK_KEY) $(DECK_USER)@$(DECK_HOST)
 
-DEPLOY_FILES=dist main.py plugin.json package.json client.js py_modules LICENSE README.md
+DEPLOY_FILES=dist main.py plugin.json package.json client.js defaults/adblock-hosts.txt py_modules LICENSE README.md
 STAGING=$(DECK_HOME)/.cache/$(PLUGIN_FOLDER)-deploy
 
 deploy-steamdeck: ## Deploy plugin build to steamdeck (asks for sudo password on the device)

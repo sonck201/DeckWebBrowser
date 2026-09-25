@@ -20,6 +20,7 @@ interface Settings {
     menuPosition: number
     customSearchUrl?: string
     noTabBar?: boolean
+    adBlock?: boolean
 }
 
 interface History {

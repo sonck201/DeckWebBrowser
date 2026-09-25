@@ -1,6 +1,7 @@
 import asyncio
 import json
 import os
+from urllib.parse import urlparse
 from uuid import uuid4
 import aiohttp
 import aiohttp.web
@@ -19,10 +20,28 @@ settingManagers = {
 }
 
 tabs: Dict[str, Tab] = {}
+
+# Generic ad containers hidden when ad blocking is on (cosmetic filtering)
+ADBLOCK_CSS = ','.join([
+    'ins.adsbygoogle', '[id^="google_ads_"]', '[id^="div-gpt-ad"]', '[data-ad-slot]',
+    '[data-google-query-id]', '.adsbox', '.ad-banner', '.ad-container', '.advertisement',
+    'iframe[src*="doubleclick.net"]', 'iframe[src*="googlesyndication.com"]', 'iframe[id^="google_ads_"]'
+]) + '{display:none!important}'
+ADBLOCK_JS = f"""(() => {{
+    const add = () => {{ const s = document.createElement('style'); s.textContent = {json.dumps(ADBLOCK_CSS)}; (document.head || document.documentElement).appendChild(s) }};
+    document.documentElement ? add() : document.addEventListener('DOMContentLoaded', add);
+}})()"""
+
+def is_blocked_host(host: str, domains) -> bool:
+    # Blocks listed domains and all their subdomains; stops before the bare TLD
+    parts = host.split('.')
+    return any('.'.join(parts[i:]) in domains for i in range(len(parts) - 1))
+
 class Plugin:
     async def _main(self):
         decky_plugin.logger.info("Starting Plugin")
         self.load_client_script(self)
+        self.load_adblock_list(self)
         self.ws_server = WSServer()
         self.tasks = [asyncio.create_task(self.ws_server.run(), name='ws_server')]
 
@@ -87,6 +106,38 @@ class Plugin:
                 "method": "Page.enable",
             }, True)
 
+    # Pauses every request on this cdp connection; the read loop in auto_inject_target answers them.
+    # Must be the last command sent before the read loop: waiting on a reply (receive=True) after
+    # Fetch.enable would swallow requestPaused events and hang those requests.
+    async def add_adblock(self, tab: Tab):
+        if not settingManagers['settings'].getSetting('adBlock', False) or not self.adblock_domains:
+            return False
+        await tab._send_devtools_cmd({
+            "method": "Page.addScriptToEvaluateOnNewDocument",
+            "params": {"source": ADBLOCK_JS, "runImmediately": True}
+        }, True)
+        await tab._send_devtools_cmd({
+            "method": "Fetch.enable",
+            "params": {"patterns": [{"urlPattern": "*", "requestStage": "Request"}]}
+        }, False)
+        return True
+
+    async def handle_paused_request(self, tab: Tab, params):
+        host = urlparse(params['request']['url']).hostname or ''
+        if is_blocked_host(host, self.adblock_domains):
+            await tab._send_devtools_cmd({"method": "Fetch.failRequest", "params": {"requestId": params['requestId'], "errorReason": "BlockedByClient"}}, False)
+        else:
+            await tab._send_devtools_cmd({"method": "Fetch.continueRequest", "params": {"requestId": params['requestId']}}, False)
+
+    def load_adblock_list(self):
+        self.adblock_domains = set()
+        try:
+            with open(os.path.join(decky_plugin.DECKY_PLUGIN_DIR, 'adblock-hosts.txt'), 'r', encoding='utf-8') as file:
+                self.adblock_domains = {line.strip() for line in file if line.strip() and not line.startswith('#')}
+            decky_plugin.logger.info(f'Loaded {len(self.adblock_domains)} adblock domains')
+        except IOError:
+            decky_plugin.logger.error("Error loading adblock list")
+
     async def auto_inject_target(self, tab: Tab, frontend_id):
         already_removed = False
         while frontend_id in tabs:
@@ -96,6 +147,7 @@ class Plugin:
                 await tab.open_websocket()
                 decky_plugin.logger.info(f'Connected cdp ws {tab.ws_url}')
                 await self.add_client_script(self, tab, frontend_id)
+                adblock = await self.add_adblock(self, tab)
                 async for msg in tab.websocket:
                     if msg.type == aiohttp.WSMsgType.CLOSE:
                         raise ValueError('WebSocket connection closed')
@@ -103,7 +155,9 @@ class Plugin:
                         raise ValueError(f'WebSocket error: {msg.data}')
                     elif msg.type == aiohttp.WSMsgType.TEXT:
                         message_data = json.loads(msg.data)
-                        if (message_data.get("method") == "Inspector.detached" and message_data.get("params", {}).get("reason") == "target_closed"):
+                        if adblock and message_data.get("method") == "Fetch.requestPaused":
+                            await self.handle_paused_request(self, tab, message_data["params"])
+                        elif (message_data.get("method") == "Inspector.detached" and message_data.get("params", {}).get("reason") == "target_closed"):
                             decky_plugin.logger.info(f"Target closed detected for {frontend_id}, removing tab")
                             del self.ws_server.api_keys[frontend_id]
                             await tab.close_websocket()

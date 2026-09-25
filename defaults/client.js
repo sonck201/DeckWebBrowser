@@ -13,6 +13,7 @@
         OFFER: 'offer',
         ANSWER: 'answer',
         CANDIDATE: 'candidate',
+        OPEN_TAB: 'openTab',
     };
 
     class WSManager {
@@ -29,8 +30,6 @@
         connect() {
             this.ws = new WebSocket(`ws://127.0.0.1:${this.port}/ws?api_key=${this.key}`);
             this.ws.onerror = e => console.error('WebSocket error', e);
-            this.ws.onclose = e => console.error('WebSocket closed', e);
-            this.ws.onopen = e => console.debug('WebSocket opened', e);
             this.ws.onmessage = async (message) => {
                 const data = JSON.parse(message.data);
                 this.handlerServerResponse(data);
@@ -45,6 +44,10 @@
                 }
             };
             return new Promise((resolve, reject) => {
+                this.ws.onclose = e => {
+                    console.error('WebSocket closed', e);
+                    reject('WebSocket closed');
+                };
                 this.ws.onopen = () => {
                     console.debug('WebSocket connected. Sending registration')
                     this.sendBare({ type: 'register', targetType: 'client', targetId: this.id }, true)
@@ -272,7 +275,7 @@
         const { stream, resolver } = getStreamPromise();
         rtcHandler.resolveOnAddStream(resolver);
 
-        await wsManager.connect();
+        await ensureConnected();
         console.debug('Requesting mic access from host');
         wsManager.msgHost(MessageType.REQUEST_MIC, {});
 
@@ -282,7 +285,7 @@
         return _stream;
     }
     async function denyAccess() {
-        await wsManager.connect();
+        await ensureConnected();
         console.debug('Denying mic access');
         wsManager.msgHost(MessageType.DENY_MIC, {});
     }
@@ -300,9 +303,66 @@
         });
     }
 
+    function ensureConnected() {
+        if (!connecting || wsManager.ws.readyState > WebSocket.OPEN) connecting = wsManager.connect();
+        return connecting;
+    }
+
+    // Steam opens new windows as popups outside the plugin UI (no tabs/footer), so ask the host for a plugin tab instead
+    function openInNewTab(url) {
+        const href = new URL(url, location.href).href;
+        ensureConnected()
+            .then(() => wsManager.msgHost(MessageType.OPEN_TAB, { url: href }))
+            .catch(() => location.href = href);
+    }
+
+    function showLinkMenu(x, y, href) {
+        closeLinkMenu();
+        linkMenu = document.createElement('div');
+        linkMenu.textContent = 'Open link in new tab';
+        Object.assign(linkMenu.style, {
+            position: 'fixed', left: `${x}px`, top: `${y}px`, zIndex: '2147483647', padding: '10px 16px',
+            backgroundColor: '#242529', color: '#fff', font: '16px sans-serif', borderRadius: '4px',
+            boxShadow: '0 2px 8px rgba(0, 0, 0, 0.5)', cursor: 'pointer',
+        });
+        linkMenu.onclick = event => {
+            event.stopPropagation();
+            closeLinkMenu();
+            openInNewTab(href);
+        };
+        document.documentElement.appendChild(linkMenu);
+    }
+    function closeLinkMenu() {
+        linkMenu?.remove();
+        linkMenu = null;
+    }
+
     let remoteStream;
+    let connecting;
+    let linkMenu;
     const wsManager = new WSManager(wsPort, tabId, apiKey);
     const rtcHandler = new RTCHandler(wsManager);
+
+    window.open = url => {
+        if (!url) return window; // keeps the `w = window.open(); w.location = url` pattern in this tab
+        openInNewTab(url);
+        return null;
+    };
+    // bubble phase on window so sites that handle the click themselves (defaultPrevented) aren't opened twice
+    window.addEventListener('click', event => {
+        const link = event.target.closest?.('a[target]');
+        if (event.defaultPrevented || !link?.href || link.target.toLowerCase() !== '_blank') return;
+        event.preventDefault();
+        openInNewTab(link.href);
+    });
+    document.addEventListener('contextmenu', event => {
+        const link = event.target.closest?.('a[href]');
+        if (!link || !/^https?:/i.test(link.href)) return closeLinkMenu();
+        event.preventDefault();
+        showLinkMenu(event.clientX, event.clientY, link.href);
+    }, true);
+    document.addEventListener('pointerdown', event => event.target !== linkMenu && closeLinkMenu(), true);
+    document.addEventListener('keydown', event => event.key === 'Escape' && closeLinkMenu(), true);
 
     // window.wsm = wsManager
     // window.rtc = rtcHandler

@@ -42,6 +42,7 @@ type BrowserView = {
     off: (message: string, cb: (...args: any[]) => void) => void;
     GoBack: () => void;
     GoForward: () => void;
+    Reload: () => void;
     SetFocus: (focus: boolen) => void;
 }
 type GamepadBridge = {
