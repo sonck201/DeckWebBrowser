@@ -11,13 +11,11 @@ help: ## Display list of tasks with descriptions
 
 vendor: ## Install project dependencies
 	@echo "+ $@"
-	@pnpm i
+	@yarn install
 
 env: ## Create default .env file
 	@echo "+ $@"
-	@echo -e '# Makefile tools\nDECK_USER=deck\nDECK_HOST=\nDECK_PORT=22\nDECK_HOME=/home/deck\nDECK_KEY=~/.ssh/id_rsa' >> .env
-	@echo -n "PLUGIN_FOLDER=" >> .env
-	@jq -r .name package.json >> .env
+	@echo -e '# Makefile tools\nDECK_USER=deck\nDECK_HOST=\nDECK_PORT=22\nDECK_HOME=/home/deck\nDECK_KEY=~/.ssh/id_rsa\nPLUGIN_FOLDER=DeckWebBrowser' >> .env
 
 init: ## Initialize project
 	@$(MAKE) env
@@ -30,43 +28,29 @@ init: ## Initialize project
 
 update-frontend-lib: ## Update decky-frontend-lib
 	@echo "+ $@"
-	@pnpm update decky-frontend-lib --latest
+	@yarn upgrade decky-frontend-lib --latest
 
 build-front: ## Build frontend
 	@echo "+ $@"
-	@pnpm run build
-
-build-back: ## Build backend
-	@echo "+ $@"
-	@make -C ./backend
+	@yarn build
 
 build: ## Build everything
-	@$(MAKE) build-front build-back
+	@$(MAKE) build-front
 
 copy-ssh-key: ## Copy public ssh key to steamdeck
 	@echo "+ $@"
 	@ssh-copy-id -i $(DECK_KEY) $(DECK_USER)@$(DECK_HOST)
 
-deploy-steamdeck: ## Deploy plugin build to steamdeck
+DEPLOY_FILES=dist main.py plugin.json package.json client.js py_modules LICENSE README.md
+STAGING=$(DECK_HOME)/.cache/$(PLUGIN_FOLDER)-deploy
+
+deploy-steamdeck: ## Deploy plugin build to steamdeck (asks for sudo password on the device)
 	@echo "+ $@"
-	@ssh $(DECK_USER)@$(DECK_HOST) -p $(DECK_PORT) -i $(DECK_KEY) \
- 		'chmod -v 755 $(DECK_HOME)/homebrew/plugins/ && mkdir -p $(DECK_HOME)/homebrew/plugins/$(PLUGIN_FOLDER)'
-	@rsync -azp --delete --progress -e "ssh -p $(DECK_PORT) -i $(DECK_KEY)" \
-		--chmod=Du=rwx,Dg=rx,Do=rx,Fu=rwx,Fg=rx,Fo=rx \
-		--exclude='.git/' \
-		--exclude='.github/' \
-		--exclude='.vscode/' \
-		--exclude='node_modules/' \
-		--exclude='.pnpm-store/' \
-		--exclude='src/' \
-		--exclude='*.log' \
-		--exclude='.gitignore' . \
-		--exclude='.idea' . \
-		--exclude='.env' . \
-		--exclude='Makefile' . \
- 		./ $(DECK_USER)@$(DECK_HOST):$(DECK_HOME)/homebrew/plugins/$(PLUGIN_FOLDER)/
-	@ssh $(DECK_USER)@$(DECK_HOST) -p $(DECK_PORT) -i $(DECK_KEY) \
- 		'chmod -v 755 $(DECK_HOME)/homebrew/plugins/'
+	@ssh $(DECK_USER)@$(DECK_HOST) -p $(DECK_PORT) -i $(DECK_KEY) 'mkdir -p $(STAGING)'
+	@rsync -azpL --delete -e "ssh -p $(DECK_PORT) -i $(DECK_KEY)" \
+		$(DEPLOY_FILES) $(DECK_USER)@$(DECK_HOST):$(STAGING)/
+	@ssh -t $(DECK_USER)@$(DECK_HOST) -p $(DECK_PORT) -i $(DECK_KEY) \
+		'sudo rsync -rlpt --delete $(STAGING)/ $(DECK_HOME)/homebrew/plugins/$(PLUGIN_FOLDER)/'
 
 restart-decky: ## Restart Decky on remote steamdeck
 	@echo "+ $@"
@@ -87,8 +71,6 @@ cleanup: ## Delete all generated files and folders
 	@rm -rf ./dist
 	@rm -rf ./tmp
 	@rm -rf ./node_modules
-	@rm -rf ./.pnpm-store
-	@rm -rf ./backend/out
 
 uninstall-plugin: ## Uninstall plugin from steamdeck, restart Decky
 	@echo "+ $@"
@@ -101,6 +83,5 @@ docker-rebuild-image: ## Rebuild docker image
 	@docker compose build --pull
 
 docker-build: ## Build project inside docker container
-	@$(MAKE) build-back
 	@echo "+ $@"
 	@docker run --rm -i -v $(PWD):/plugin -v $(PWD)/tmp/out:/out ghcr.io/steamdeckhomebrew/builder:latest
