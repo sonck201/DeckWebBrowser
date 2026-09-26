@@ -1,7 +1,7 @@
 import { PanelSection, PanelSectionRow, Field, GamepadEvent, GamepadButton, showModal, ButtonItem, DropdownItem, ToggleField } from "decky-frontend-lib";
 import { VFC, useMemo, useState } from "react";
 import { defaultUrl } from "../init";
-import { SearchEngine, settingsManager } from "../classes/SettingsManager";
+import { SearchEngine, StartupMode, settingsManager } from "../classes/SettingsManager";
 import { ReorderableEntry, ReorderableList } from "./ReorderableListModified";
 import { ConfirmDeleteDefaultTabModal } from "./ConfrimationModals";
 import { EnhancedSelector } from './generic/EnhancedSelector';
@@ -60,6 +60,20 @@ export const QAMContent: VFC = ({ }) => {
                         </PanelSectionRow>
                     </PanelSection>
                     <PanelSection title="Default Tabs">
+                        <PanelSectionRow>
+                            <DropdownItem
+                                label='On Startup'
+                                layout='below'
+                                rgOptions={[
+                                    { label: 'Restore Previous Tabs', data: StartupMode.RESTORE },
+                                    { label: 'Open Default Tabs', data: StartupMode.DEFAULT }
+                                ]}
+                                selectedOption={settingsManager.settings.startupMode ?? StartupMode.RESTORE}
+                                onChange={(option) => {
+                                    settingsManager.setSetting('startupMode', option.data)
+                                }}
+                            />
+                        </PanelSectionRow>
                         {/* @ts-expect-error decky-frontend-lib types omit style on PanelSectionRow */}
                         <PanelSectionRow style={{ marginLeft: '-16px', marginRight: '-16px' }}>
                             <ReorderableList<{ tab: string }>

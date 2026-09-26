@@ -12,6 +12,16 @@ export enum SearchEngine {
     CUSTOM
 }
 
+export enum StartupMode {
+    RESTORE = 'restore',
+    DEFAULT = 'default'
+}
+
+export interface Session {
+    tabs: string[]
+    activeIndex: number
+}
+
 interface Settings {
     homeUrl?: string
     defaultTabs: string[]
@@ -21,6 +31,8 @@ interface Settings {
     customSearchUrl?: string
     noTabBar?: boolean
     adBlock?: boolean
+    startupMode?: StartupMode
+    lastSession?: Session
 }
 
 interface History {

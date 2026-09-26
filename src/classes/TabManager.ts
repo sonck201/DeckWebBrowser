@@ -3,10 +3,11 @@ import { defaultUrl, windowRouter } from "../init"
 import BrowserTabHandler, { MicAccess, MicAccessChangeEvent, OnCancelType } from "./BrowserTabHandler"
 import isURL from "validator/lib/isURL"
 import { v4 as uuidv4 } from "uuid"
-import { SearchEngine, settingsManager } from "./SettingsManager"
+import { SearchEngine, StartupMode, settingsManager } from "./SettingsManager"
 import { backendService } from "./BackendService"
 import { WSManager } from './WSManager'
 import { killBrowser } from '../lib/utils'
+import { status } from '../pluginState'
 
 const tmLogger = new Logger('Tab Manager');
 export class TabManager {
@@ -22,6 +23,7 @@ export class TabManager {
     loadTabPromise: Promise<void> | undefined
     eventTarget = new EventTarget()
     wsm?: WSManager
+    saveSessionTimeout?: ReturnType<typeof setTimeout>
     constructor(defaultUrl: string, windowRouter: any) {
         this.fallbackUrl = defaultUrl
         this.browserViewName = 'TabbedWebBrowser'
@@ -38,6 +40,7 @@ export class TabManager {
         const browser = this.windowRouter?.CreateBrowserView(this.browserViewName)
         browser.LoadURL(`data:text/plain,${id}`)
         const tabHandler = new BrowserTabHandler(id, browser, this, onCancelType)
+        tabHandler.currentUrl = url
         this.tabHandlers.push(tabHandler)
         this.setActiveTabById(id)
         const response = await waitForUniqueUriLoad(browser, id).then(() => {
@@ -69,6 +72,7 @@ export class TabManager {
             this.setActiveTabByIndex(index === 0 ? index + 1 : index - 1)
         }
         this.tabHandlers.splice(index, 1)
+        this.scheduleSaveSession()
         if (this.onCloseTab) this.onCloseTab()
     }
 
@@ -77,14 +81,30 @@ export class TabManager {
             tmLogger.warn('Settings have not loaded when trying to create default tabs. Using fallback url to create tab instead.')
             this.createTab()
         } else {
-            for (let i = 0; i < settingsManager.settings.defaultTabs.length; i++) {
-                const tab = settingsManager.settings.defaultTabs[i]
-                const tabPromise = this.createTab(tab)
-                if (i === settingsManager.settings.defaultTabs.length - 1) {
+            const { startupMode, lastSession, defaultTabs } = settingsManager.settings
+            const restore = startupMode !== StartupMode.DEFAULT && !!lastSession && lastSession.tabs.length > 0
+            const tabs = restore ? lastSession!.tabs : defaultTabs
+            for (let i = 0; i < tabs.length; i++) {
+                const tabPromise = this.createTab(tabs[i])
+                if (i === tabs.length - 1) {
                     this.loadTabPromise = tabPromise
                 }
             }
+            if (restore && lastSession!.activeIndex >= 0 && lastSession!.activeIndex < this.tabHandlers.length) {
+                this.setActiveTabByIndex(lastSession!.activeIndex)
+            }
         }
+    }
+
+    scheduleSaveSession() {
+        clearTimeout(this.saveSessionTimeout)
+        this.saveSessionTimeout = setTimeout(() => this.saveSession(), 1000)
+    }
+
+    saveSession() {
+        if (!status.running || this.tabHandlers.length === 0) return
+        const tabs = this.tabHandlers.map(tabHandler => tabHandler.currentUrl || 'home')
+        settingsManager.setSetting('lastSession', { tabs, activeIndex: Math.max(this.getActiveTabIndex(), 0) })
     }
 
     setActiveBrowserHeaderByIndex(index: number) {
@@ -100,11 +120,13 @@ export class TabManager {
         const id = this.tabHandlers[index].id
         this.activeTab = id
         this.setActiveBrowserHeaderByIndex(index)
+        this.scheduleSaveSession()
     }
 
     setActiveTabById(id: string) {
         this.activeTab = id
         this.setActiveBrowserHeader()
+        this.scheduleSaveSession()
     }
 
     getTabIndexById(id: string) {
@@ -113,6 +135,18 @@ export class TabManager {
 
     getActiveTabIndex() {
         return this.tabHandlers.findIndex(tabHandler => tabHandler.id === this.activeTab)
+    }
+
+    canMoveActiveTab(direction: -1 | 1) {
+        const target = this.getActiveTabIndex() + direction
+        return target >= 0 && target < this.tabHandlers.length
+    }
+
+    moveActiveTab(direction: -1 | 1) {
+        if (!this.canMoveActiveTab(direction)) return
+        const index = this.getActiveTabIndex()
+        const target = index + direction;
+        [this.tabHandlers[index], this.tabHandlers[target]] = [this.tabHandlers[target], this.tabHandlers[index]]
     }
 
     getActiveTabHandler() {
@@ -168,6 +202,8 @@ export class TabManager {
     }
 
     closeAllTabs() {
+        // keep the last saved session so it can be restored on next launch
+        clearTimeout(this.saveSessionTimeout)
         for (let i = 0; i < this.tabHandlers.length; i++) {
             this.tabHandlers[i].closeBrowser()
         }

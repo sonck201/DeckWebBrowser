@@ -36,6 +36,7 @@ export default class BrowserTabHandler {
     navNode?: NavNode | null
     targetId?: string
     hasTarget: boolean = false
+    currentUrl?: string
     micAccess = MicAccess.NONE
     setMicIconHeader: (state: MicAccess) => any = (state: MicAccess) => undefined
     constructor(id: string, browser: BrowserInternal, tabManager: TabManager, onCancelType = OnCancelType.NONE) {
@@ -53,6 +54,10 @@ export default class BrowserTabHandler {
             We have to set the support level to unknown after their setTimeout runs
          */
         browser.m_browserView.on('finished-request', async (url: string, title: string) => {
+            if (url && !url.startsWith('data:')) {
+                this.currentUrl = url
+                tabManager.scheduleSaveSession()
+            }
             const inputSupport = browser.GetGameInputSupportLevel().Value;
             if (inputSupport === BrowserInputSupport.Unknown) {
                 await sleep(10)
