@@ -228,6 +228,24 @@ export const BrowserContextMenu: VFC<BrowserContextMenuProps> = ({ menu, tabMana
                 Toggle Tab Bar
             </MenuItem>
             <MenuItem
+                disabled={!tabManager.canMoveActiveTab(-1)}
+                onClick={() => {
+                    tabManager.moveActiveTab(-1)
+                    rerenderBrowser()
+                }}
+            >
+                Move Tab Left
+            </MenuItem>
+            <MenuItem
+                disabled={!tabManager.canMoveActiveTab(1)}
+                onClick={() => {
+                    tabManager.moveActiveTab(1)
+                    rerenderBrowser()
+                }}
+            >
+                Move Tab Right
+            </MenuItem>
+            <MenuItem
                 onClick={activeTabHasTarget ? () => tabManager.inspectActiveTab() : () => tabManager.openCefInspectorTab()}
                 onOptionsButton={activeTabHasTarget ? () => {
                     menu.instance.Hide()
